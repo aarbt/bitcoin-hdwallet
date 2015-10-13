@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"math/big"
 	"math/rand"
+	"strings"
 
 	"github.com/aarbt/bitcoin-base58"
 	"github.com/aarbt/bitcoin-crypto/bitelliptic"
+	"github.com/aarbt/mnemonic"
 
 	"testing"
 )
@@ -91,6 +93,46 @@ func TestSerializeParseUncompressedLeadingZeros(t *testing.T) {
 	}
 	if y.Cmp(Y) != 0 {
 		t.Errorf("Y changed: got %v, expected %v.", Y, y)
+	}
+}
+
+func TestHashing(t *testing.T) {
+	pub, _ := hex.DecodeString("03b9c2618c5d089bf4f6ab9849b4e364c1212c701357d6d168ddaf1e8ba55a233d")
+	hashRef, _ := hex.DecodeString("d4b1fe6c3caf3e86b80a7246544c3b4a70735c2a")
+	hash := RIPEMD160Hash(pub)
+	if !bytes.Equal(hash, hashRef) {
+		t.Errorf("Hash mismatch: got %x, expected %x.", hash, hashRef)
+	}
+}
+
+func TestPrivateToPublic(t *testing.T) {
+	prv, _ := hex.DecodeString("18E14A7B6A307F426A94F8114701E7C8E774E7F9A47E2C2035DB29A206321725")
+	pubRef, _ := hex.DecodeString("0450863AD64A87AE8A2FE83C1AF1A8403CB53F53E486D8511DAD8A04887E5B23522CD470243453A299FA9E77237716103ABC11A1DF38855ED6F2EE187E9C582BA6")
+	hashRef := "16UwLL9Risc3QfPqBUvKofHmBQ7wMtjvM"
+
+	pub := SerializeUncompressed(privateToPublic(parse256(prv)))
+	if !bytes.Equal(pub, pubRef) {
+		t.Errorf("Public key mismatch: got %x, expected %x.", pub, pubRef)
+	}
+	h, _ := base58.BitcoinCheckEncode(
+		base58.BitcoinPublicKeyHashPrefix,
+		RIPEMD160Hash(pub))
+	if h != hashRef {
+		t.Errorf("Public key hash mismatch: got %s, expected %s.", h, hashRef)
+	}
+}
+
+func TestPrivateToPublic2(t *testing.T) {
+	prvBytes, _ := hex.DecodeString(
+		"685554a72f06aa051b03a05154355c1591e668b1948d66325952807daae9de71")
+	prv := parse256(prvBytes)
+	pubKey := SerializeCompact(privateToPublic(prv))
+	h, _ := base58.BitcoinCheckEncode(
+		base58.BitcoinPublicKeyHashPrefix,
+		RIPEMD160Hash(pubKey))
+	hashRef := "1LPdUu1qKXFTowobD9uB62QesdodtV2ugx"
+	if h != hashRef {
+		t.Errorf("Public key hash mismatch: got %s, expected %s.", h, hashRef)
 	}
 }
 
@@ -311,5 +353,43 @@ func TestPublicDerivationFail(t *testing.T) {
 		t.Errorf("Different indexes yielded same keys: "+
 			"%q vs %q.",
 			c2.SerializeEncode(), pub2.SerializeEncode())
+	}
+}
+
+func TestChainDerivation1(t *testing.T) {
+	seed, _ := hex.DecodeString("000102030405060708090a0b0c0d0e0f")
+	key := NewPrivateKey(seed)
+	cc, err := key.Chain("m/0H/1/2H/2/1000000000")
+	if err != nil {
+		t.Fatalf("Chain derivation failed: %v", err)
+	}
+	prv := "xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76"
+	pub := "xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy"
+	if cc.SerializeEncode() != prv || cc.Public().SerializeEncode() != pub {
+		t.Errorf("Chain derivation yielded wrong result.")
+	}
+}
+
+func TestChainDerivation2(t *testing.T) {
+	seed := mnemonic.SeedFromWordsPassword(
+		strings.Split("avoid element lobster scout spare actor page woman "+
+			"clog street include proud", " "), "")
+	key := NewPrivateKey(seed)
+	recv, err := key.Chain("m/ 44'/ 0'/ 0'/ 0/ 0")
+	if err != nil {
+		t.Fatalf("Chain derivation failed: %v", err)
+	}
+	if recv.PublicKeyHash() != "1APWnkAgU5iaiJtz7Ga7i3pGA127oQnnTG" {
+		t.Errorf("Chain derivation yielded wrong result: %s",
+			recv.PublicKeyHash())
+	}
+
+	change, err := key.Chain("M/44'  /0' /0 ' /1  /10")
+	if err != nil {
+		t.Fatalf("Chain derivation failed: %v", err)
+	}
+	if change.PublicKeyHash() != "17pZuDHfXNLKxyA7hsd1cGrSSPtUrhnxTq" {
+		t.Errorf("Chain derivation yielded wrong result: %s",
+			change.PublicKeyHash())
 	}
 }

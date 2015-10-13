@@ -7,6 +7,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 
 	"github.com/aarbt/bitcoin-base58"
 )
@@ -26,6 +28,10 @@ type Key struct {
 	code    []byte
 	pubKey  []byte // 33 bytes
 	prvKey  *big.Int
+}
+
+func (k Key) String() string {
+	return fmt.Sprintf("%d %d %x %d %x", k.version, k.depth, k.parent, k.index, k.code)
 }
 
 func NewRawKey(I []byte) *Key {
@@ -55,7 +61,7 @@ func (k *Key) IsPublic() bool {
 }
 
 func (k *Key) Fingerprint() []byte {
-	return RIPEMD160Hash(k.publicKey())[:4]
+	return RIPEMD160Hash(k.PublicKey())[:4]
 }
 
 // Child returns the child key with index i. Private keys will return private
@@ -71,7 +77,7 @@ func (k *Key) Child(i uint32) (*Key, error) {
 			binary.Write(signer, binary.BigEndian, i) // ser32
 		}
 	} else {
-		signer.Write(k.publicKey())
+		signer.Write(k.PublicKey())
 		binary.Write(signer, binary.BigEndian, i) // ser32
 	}
 	I := signer.Sum(nil)
@@ -92,7 +98,7 @@ func (k *Key) Child(i uint32) (*Key, error) {
 	}
 	if k.IsPublic() {
 		p := privateToPublic(left)
-		P := addPoints(p, ParseCompact(k.publicKey()))
+		P := addPoints(p, ParseCompact(k.PublicKey()))
 		k1.pubKey = SerializeCompact(P)
 	} else {
 		k1.prvKey = addInts(left, k.prvKey)
@@ -146,28 +152,16 @@ func ParseEncoded(s string) (*Key, error) {
 }
 
 func (k *Key) Serialize() []byte {
-	/*
-	   4 byte: version bytes (mainnet: 0x0488B21E public, 0x0488ADE4 private;
-	   			  testnet: 0x043587CF public, 0x04358394 private)
-	   1 byte: depth: 0x00 for master nodes, 0x01 for level-1 derived keys, ....
-	   4 bytes: the fingerprint of the parent's key (0x00000000 if master key)
-	   4 bytes: child number. This is ser32(i) for i in xi = xpar/i, with
-	   	xi the key being serialized. (0x00000000 if master key) 32 bytes:
-	   	the chain code
-	   33 bytes: the public key or private key data (serP(K) for public
-	   	keys, 0x00 || ser256(k) for private keys)
-	*/
-
 	var b bytes.Buffer
 	binary.Write(&b, binary.BigEndian, k.version)
 	binary.Write(&b, binary.BigEndian, k.depth)
-	binary.Write(&b, binary.BigEndian, k.parent)
+	b.Write(k.parent)
 	binary.Write(&b, binary.BigEndian, k.index)
 	b.Write(k.code)
 	if k.IsPublic() {
-		b.Write(k.publicKey())
+		b.Write(k.PublicKey())
 	} else {
-		binary.Write(&b, binary.BigEndian, byte(0x00))
+		b.Write([]byte{0x00})
 		b.Write(ser256(k.prvKey))
 	}
 	return b.Bytes()
@@ -182,32 +176,94 @@ func (k *Key) SerializeEncode() string {
 // signatures.
 func (k Key) Public() *Key {
 	K := k
-	if k.version == BitcoinExtendedPrivateKeyVersion {
+	switch k.version {
+	case BitcoinExtendedPrivateKeyVersion:
 		K.version = BitcoinExtendedPublicKeyVersion
-	} else if k.version == BitcoinTestnetExtendedPrivateKeyVersion {
+	case BitcoinTestnetExtendedPrivateKeyVersion:
 		K.version = BitcoinTestnetExtendedPublicKeyVersion
-	} else {
-		panic(fmt.Sprintf("Urecognized version %x.", k.version))
+	case BitcoinExtendedPublicKeyVersion, BitcoinTestnetExtendedPublicKeyVersion:
+		// do nothing, return a copy.
+	default:
+		panic(fmt.Sprintf("Unrecognized version %x.", k.version))
 	}
 	return &K
 }
 
-func (k *Key) PublicAddressHash() string {
-	key := SerializeUncompressed(ParseCompact(k.publicKey()))
-	h, err := base58.BitcoinCheckEncode(
-		base58.BitcoinPublicKeyHashPrefix,
-		RIPEMD160Hash(key))
+// ExportWIF exports private key in the compressed Wallet Import Format.
+func (k *Key) ExportWIF() (string, error) {
+	if k.IsPublic() {
+		return "", fmt.Errorf("Can't export WIF of public key.")
+	}
+	data := make([]byte, 34)
+	prvKey := ser256(k.prvKey)
+	data[0] = 0x80
+	copy(data[1:33], prvKey)
+	data[33] = 0x01
+	return base58.CheckEncodeToString(data), nil
+}
+
+func (k *Key) PublicKeyHash() string {
+	hash := RIPEMD160Hash(k.PublicKey())
+	encoded, err := base58.BitcoinCheckEncode(
+		base58.BitcoinPublicKeyHashPrefix, hash)
 	if err != nil {
 		// BitcoinCheckEncode should never fail with this input.
 		panic(err.Error())
 	}
-	return h
+	return encoded
 }
 
-// publicKey returns the compressed serialized public key corresponding to Key.
-func (k *Key) publicKey() []byte {
+func (k *Key) PublicKeyHashUncompressed() string {
+	key := ParseCompact(k.PublicKey())
+	ser := SerializeUncompressed(key)
+	hash := RIPEMD160Hash(ser)
+	encoded, err := base58.BitcoinCheckEncode(
+		base58.BitcoinPublicKeyHashPrefix, hash)
+	if err != nil {
+		// BitcoinCheckEncode should never fail with this input.
+		panic(err.Error())
+	}
+	return encoded
+}
+
+// PublicKey returns the compressed serialized public key corresponding to Key.
+func (k *Key) PublicKey() []byte {
 	if k.pubKey == nil {
 		k.pubKey = SerializeCompact(privateToPublic(k.prvKey))
 	}
 	return k.pubKey
+}
+
+// Chain performs all the child derivations necessary to end up with the key
+// described with BIP32 notations, eg. m/44'/0'/1'/0/3.
+func (k *Key) Chain(chain string) (*Key, error) {
+	low := strings.ToLower(chain)
+	splits := strings.Split(low, "/")
+	m := strings.Trim(splits[0], " ")
+	if m != "m" {
+		return nil, fmt.Errorf("Doesn't start with \"m\": %q.", chain)
+	}
+	if len(splits) == 1 {
+		return k, nil
+	}
+	key := k
+	for i, s := range splits[1:] {
+		t := strings.Trim(s, " ")
+		var harden uint32
+		end := t[len(t)-1]
+		if end == 'h' || end == '\'' {
+			harden = 0x80000000
+			t = t[:len(t)-1]
+		}
+		u, err := strconv.ParseUint(strings.Trim(t, " "), 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("Couldn't parse number at position %d (%s): %v",
+				i, t, err)
+		}
+		key, err = key.Child(uint32(u) + harden)
+		if err != nil {
+			return nil, fmt.Errorf("Couldn't derive child #%d (%s): %v", i, s, err)
+		}
+	}
+	return key, nil
 }
