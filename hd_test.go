@@ -1,4 +1,4 @@
-package hd
+package hdkeys
 
 import (
 	"bytes"
@@ -379,7 +379,7 @@ func TestChainDerivation2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chain derivation failed: %v", err)
 	}
-	if recv.PublicKeyHash() != "1APWnkAgU5iaiJtz7Ga7i3pGA127oQnnTG" {
+	if recv.PublicKeyHashEncode() != "1APWnkAgU5iaiJtz7Ga7i3pGA127oQnnTG" {
 		t.Errorf("Chain derivation yielded wrong result: %s",
 			recv.PublicKeyHash())
 	}
@@ -388,7 +388,7 @@ func TestChainDerivation2(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chain derivation failed: %v", err)
 	}
-	if change.PublicKeyHash() != "17pZuDHfXNLKxyA7hsd1cGrSSPtUrhnxTq" {
+	if change.PublicKeyHashEncode() != "17pZuDHfXNLKxyA7hsd1cGrSSPtUrhnxTq" {
 		t.Errorf("Chain derivation yielded wrong result: %s",
 			change.PublicKeyHash())
 	}

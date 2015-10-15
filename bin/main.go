@@ -6,7 +6,7 @@ import (
 	"log"
 
 	"github.com/aarbt/bitcoin-base58"
-	"github.com/aarbt/bitcoin-hdwallet"
+	"github.com/aarbt/hdkeys"
 )
 
 var extendedKey = flag.String("extended_key", "", "")
@@ -35,8 +35,8 @@ func main() {
 	}
 	log.Printf("Public hash: %x\n", pubKey)
 
-	key := hd.NewRawKey(extended)
+	key := hdkeys.NewPrivateKeyFromRawData(extended)
 
 	log.Println(key.SerializeEncode())
-	log.Println(key.PublicAddressHash())
+	log.Println(key.PublicKeyHashEncode())
 }

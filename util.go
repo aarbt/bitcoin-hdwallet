@@ -1,4 +1,4 @@
-package hd
+package hdkeys
 
 import (
 	"crypto/sha256"

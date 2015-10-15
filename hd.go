@@ -1,8 +1,9 @@
-package hd
+package hdkeys
 
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha512"
 	"encoding/binary"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/aarbt/bitcoin-base58"
+	"github.com/aarbt/bitcoin-crypto/bitecdsa"
+	"github.com/aarbt/bitcoin-crypto/bitelliptic"
 )
 
 const (
@@ -30,11 +33,7 @@ type Key struct {
 	prvKey  *big.Int
 }
 
-func (k Key) String() string {
-	return fmt.Sprintf("%d %d %x %d %x", k.version, k.depth, k.parent, k.index, k.code)
-}
-
-func NewRawKey(I []byte) *Key {
+func NewPrivateKeyFromRawData(I []byte) *Key {
 	return &Key{
 		version: BitcoinExtendedPrivateKeyVersion,
 		parent:  []byte{0x00, 0x00, 0x00, 0x00},
@@ -46,7 +45,69 @@ func NewRawKey(I []byte) *Key {
 func NewPrivateKey(data []byte) *Key {
 	signer := hmac.New(sha512.New, []byte("Bitcoin seed"))
 	signer.Write(data)
-	return NewRawKey(signer.Sum(nil))
+	return NewPrivateKeyFromRawData(signer.Sum(nil))
+}
+
+func Parse(d []byte) (*Key, error) {
+	if len(d) != 78 {
+		return nil, fmt.Errorf("Input of wrong length %d (expected 78).", len(d))
+	}
+	b := bytes.NewBuffer(d)
+	var version uint32
+	binary.Read(b, binary.BigEndian, &version)
+	k := Key{version: version}
+	binary.Read(b, binary.BigEndian, &k.depth)
+	k.parent = make([]byte, 4)
+	b.Read(k.parent)
+	binary.Read(b, binary.BigEndian, &k.index)
+	k.code = make([]byte, 32)
+	b.Read(k.code)
+
+	ser := make([]byte, 33)
+	b.Read(ser)
+	switch version {
+	case BitcoinExtendedPrivateKeyVersion, BitcoinTestnetExtendedPrivateKeyVersion:
+		k.prvKey = parse256(ser[1:33])
+	case BitcoinExtendedPublicKeyVersion, BitcoinTestnetExtendedPublicKeyVersion:
+		k.pubKey = ser
+	default:
+		return nil, fmt.Errorf("Input has unrecognized version %x.", version)
+	}
+	return &k, nil
+}
+
+// ParseEncoded parses a base58 encoded HD Key.
+func ParseEncoded(s string) (*Key, error) {
+	d, err := base58.CheckDecodeString(s)
+	if err != nil {
+		return nil, err
+	}
+	return Parse(d)
+}
+
+func (k *Key) Serialize() []byte {
+	var b bytes.Buffer
+	binary.Write(&b, binary.BigEndian, k.version)
+	binary.Write(&b, binary.BigEndian, k.depth)
+	b.Write(k.parent)
+	binary.Write(&b, binary.BigEndian, k.index)
+	b.Write(k.code)
+	if k.IsPublic() {
+		b.Write(k.PublicKey())
+	} else {
+		b.Write([]byte{0x00})
+		b.Write(ser256(k.prvKey))
+	}
+	return b.Bytes()
+}
+
+// SerializeEncode serializes and base58 encodes Key.
+func (k *Key) SerializeEncode() string {
+	return base58.CheckEncodeToString(k.Serialize())
+}
+
+func (k Key) String() string {
+	return fmt.Sprintf("%d %d %x %d %x", k.version, k.depth, k.parent, k.index, k.code)
 }
 
 func (k *Key) IsPublic() bool {
@@ -114,64 +175,6 @@ func (k *Key) ChildOrDie(i uint32) *Key {
 	return c
 }
 
-func Parse(d []byte) (*Key, error) {
-	if len(d) != 78 {
-		return nil, fmt.Errorf("Input of wrong length %d (expected 78).", len(d))
-	}
-	b := bytes.NewBuffer(d)
-	var version uint32
-	binary.Read(b, binary.BigEndian, &version)
-	k := Key{version: version}
-	binary.Read(b, binary.BigEndian, &k.depth)
-	k.parent = make([]byte, 4)
-	b.Read(k.parent)
-	binary.Read(b, binary.BigEndian, &k.index)
-	k.code = make([]byte, 32)
-	b.Read(k.code)
-
-	ser := make([]byte, 33)
-	b.Read(ser)
-	switch version {
-	case BitcoinExtendedPrivateKeyVersion, BitcoinTestnetExtendedPrivateKeyVersion:
-		k.prvKey = parse256(ser[1:33])
-	case BitcoinExtendedPublicKeyVersion, BitcoinTestnetExtendedPublicKeyVersion:
-		k.pubKey = ser
-	default:
-		return nil, fmt.Errorf("Input has unrecognized version %x.", version)
-	}
-	return &k, nil
-}
-
-// ParseEncoded parses a base58 encoded HD Key.
-func ParseEncoded(s string) (*Key, error) {
-	d, err := base58.CheckDecodeString(s)
-	if err != nil {
-		return nil, err
-	}
-	return Parse(d)
-}
-
-func (k *Key) Serialize() []byte {
-	var b bytes.Buffer
-	binary.Write(&b, binary.BigEndian, k.version)
-	binary.Write(&b, binary.BigEndian, k.depth)
-	b.Write(k.parent)
-	binary.Write(&b, binary.BigEndian, k.index)
-	b.Write(k.code)
-	if k.IsPublic() {
-		b.Write(k.PublicKey())
-	} else {
-		b.Write([]byte{0x00})
-		b.Write(ser256(k.prvKey))
-	}
-	return b.Bytes()
-}
-
-// SerializeEncode serializes and base58 encodes Key.
-func (k *Key) SerializeEncode() string {
-	return base58.CheckEncodeToString(k.Serialize())
-}
-
 // Public returns the public version of the Key that can't be used to create
 // signatures.
 func (k Key) Public() *Key {
@@ -202,15 +205,28 @@ func (k *Key) ExportWIF() (string, error) {
 	return base58.CheckEncodeToString(data), nil
 }
 
-func (k *Key) PublicKeyHash() string {
-	hash := RIPEMD160Hash(k.PublicKey())
+func (k *Key) Sign(data []byte) (*big.Int, *big.Int) {
+	key := bitecdsa.NewKeyFromInt(bitelliptic.S256(), k.prvKey)
+	r, s, err := bitecdsa.Sign(rand.Reader, key, data)
+	if err != nil {
+		panic(err.Error())
+	}
+	return r, s
+}
+
+func (k *Key) PublicKeyHashEncode() string {
 	encoded, err := base58.BitcoinCheckEncode(
-		base58.BitcoinPublicKeyHashPrefix, hash)
+		base58.BitcoinPublicKeyHashPrefix,
+		k.PublicKeyHash())
 	if err != nil {
 		// BitcoinCheckEncode should never fail with this input.
 		panic(err.Error())
 	}
 	return encoded
+}
+
+func (k *Key) PublicKeyHash() []byte {
+	return RIPEMD160Hash(k.PublicKey())
 }
 
 func (k *Key) PublicKeyHashUncompressed() string {
@@ -240,14 +256,17 @@ func (k *Key) Chain(chain string) (*Key, error) {
 	low := strings.ToLower(chain)
 	splits := strings.Split(low, "/")
 	m := strings.Trim(splits[0], " ")
-	if m != "m" {
-		return nil, fmt.Errorf("Doesn't start with \"m\": %q.", chain)
-	}
-	if len(splits) == 1 {
-		return k, nil
+	if m == "m" {
+		if k.depth != 0 {
+			return nil, fmt.Errorf("Origin key isn't a master.")
+		}
+		if len(splits) == 1 {
+			return k, nil
+		}
+		splits = splits[1:]
 	}
 	key := k
-	for i, s := range splits[1:] {
+	for i, s := range splits {
 		t := strings.Trim(s, " ")
 		var harden uint32
 		end := t[len(t)-1]
