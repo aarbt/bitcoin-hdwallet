@@ -33,7 +33,7 @@ type Key struct {
 	prvKey  *big.Int
 }
 
-func NewPrivateKeyFromRawData(I []byte) *Key {
+func NewMasterKeyRawData(I []byte) *Key {
 	return &Key{
 		version: BitcoinExtendedPrivateKeyVersion,
 		parent:  []byte{0x00, 0x00, 0x00, 0x00},
@@ -42,10 +42,10 @@ func NewPrivateKeyFromRawData(I []byte) *Key {
 	}
 }
 
-func NewPrivateKey(data []byte) *Key {
+func NewMasterKey(data []byte) *Key {
 	signer := hmac.New(sha512.New, []byte("Bitcoin seed"))
 	signer.Write(data)
-	return NewPrivateKeyFromRawData(signer.Sum(nil))
+	return NewMasterKeyRawData(signer.Sum(nil))
 }
 
 func Parse(d []byte) (*Key, error) {
@@ -107,7 +107,7 @@ func (k *Key) SerializeEncode() string {
 }
 
 func (k Key) String() string {
-	return fmt.Sprintf("%d %d %x %d %x", k.version, k.depth, k.parent, k.index, k.code)
+	return k.SerializeEncode()
 }
 
 func (k *Key) IsPublic() bool {

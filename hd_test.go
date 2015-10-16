@@ -186,7 +186,7 @@ func TestVector1(t *testing.T) {
 
 	// Chain m
 	vector = append(vector, Test{
-		key: NewPrivateKey(master),
+		key: NewMasterKey(master),
 		pub: "xpub661MyMwAqRbcFtXgS5sYJABqqG9YLmC4Q1Rdap9gSE8NqtwybGhePY2gZ29ESFjqJoCu1Rupje8YtGqsefD265TMg7usUDFdp6W1EGMcet8",
 		prv: "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi",
 	})
@@ -249,7 +249,7 @@ func TestVector2(t *testing.T) {
 
 	// Chain m
 	vector = append(vector, Test{
-		key: NewPrivateKey(master),
+		key: NewMasterKey(master),
 		pub: "xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB",
 		prv: "xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U",
 	})
@@ -310,7 +310,7 @@ func TestPublicDerivation(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		seed := randomData(r, 64)
-		key := NewPrivateKey(seed)
+		key := NewMasterKey(seed)
 		if key.IsPublic() {
 			t.Fatalf("Key public when not expected to.")
 		}
@@ -344,7 +344,7 @@ func TestPublicDerivationFail(t *testing.T) {
 	r := rand.New(rand.NewSource(1))
 
 	seed := randomData(r, 64)
-	key := NewPrivateKey(seed)
+	key := NewMasterKey(seed)
 	pub := key.Public()
 	c1 := key.ChildOrDie(0)
 	c2 := pub.ChildOrDie(1)
@@ -358,7 +358,7 @@ func TestPublicDerivationFail(t *testing.T) {
 
 func TestChainDerivation1(t *testing.T) {
 	seed, _ := hex.DecodeString("000102030405060708090a0b0c0d0e0f")
-	key := NewPrivateKey(seed)
+	key := NewMasterKey(seed)
 	cc, err := key.Chain("m/0H/1/2H/2/1000000000")
 	if err != nil {
 		t.Fatalf("Chain derivation failed: %v", err)
@@ -374,7 +374,7 @@ func TestChainDerivation2(t *testing.T) {
 	seed := mnemonic.SeedFromWordsPassword(
 		strings.Split("avoid element lobster scout spare actor page woman "+
 			"clog street include proud", " "), "")
-	key := NewPrivateKey(seed)
+	key := NewMasterKey(seed)
 	recv, err := key.Chain("m/ 44'/ 0'/ 0'/ 0/ 0")
 	if err != nil {
 		t.Fatalf("Chain derivation failed: %v", err)
