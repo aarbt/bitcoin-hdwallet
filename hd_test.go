@@ -7,9 +7,9 @@ import (
 	"math/rand"
 	"strings"
 
-	"github.com/aarbt/bitcoin-base58"
-	"github.com/aarbt/bitcoin-crypto/bitelliptic"
-	"github.com/aarbt/mnemonic"
+	"github.com/runeaune/bitcoin-base58"
+	"github.com/runeaune/bitcoin-crypto/bitelliptic"
+	"github.com/runeaune/mnemonic"
 
 	"testing"
 )

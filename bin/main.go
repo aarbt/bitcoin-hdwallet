@@ -6,7 +6,7 @@ import (
 	"flag"
 	"log"
 
-	"github.com/aarbt/hdkeys"
+	"github.com/runeaune/hdkeys"
 )
 
 var seedHex = flag.String("seed", "", "hex encoded random seed between 16 and 64 bytes.")

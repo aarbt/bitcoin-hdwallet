@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aarbt/bitcoin-base58"
-	"github.com/aarbt/bitcoin-crypto/bitecdsa"
-	"github.com/aarbt/bitcoin-crypto/bitelliptic"
+	"github.com/runeaune/bitcoin-base58"
+	"github.com/runeaune/bitcoin-crypto/bitecdsa"
+	"github.com/runeaune/bitcoin-crypto/bitelliptic"
 )
 
 const (

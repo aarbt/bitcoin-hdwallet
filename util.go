@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/aarbt/bitcoin-crypto/bitecdsa"
-	"github.com/aarbt/bitcoin-crypto/bitelliptic"
+	"github.com/runeaune/bitcoin-crypto/bitecdsa"
+	"github.com/runeaune/bitcoin-crypto/bitelliptic"
 	"golang.org/x/crypto/ripemd160"
 )
 
